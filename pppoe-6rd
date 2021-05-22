@@ -1,0 +1,44 @@
+#!/bin/vbash
+#install me in /etc/ppp/ip-up.d/
+
+#carrier 6rd prefix - in my case CenturyLink is 2602::/24
+CARRIER6RDPREFIX="2602"
+
+#Which interface is the LAN
+LANIFACE="eth1"
+#Which interface is the 6RD tunnel (configure ahead of time!)
+TUNIFACE="tun0"
+
+#IPv4 address on the LAN interface
+LANIPV4="10.82.1.1/24"
+
+
+PPPOEIP=`/sbin/ifconfig pppoe0 | /bin/grep 'inet' | /usr/bin/cut -d: -f2 | /usr/bin/awk '{print $2}'`
+PIP1=`/bin/echo "$PPPOEIP" | /usr/bin/cut -d. -f1 | /usr/bin/awk '{print $1}'`
+PIP2=`/bin/echo "$PPPOEIP" | /usr/bin/cut -d. -f2 | /usr/bin/awk '{print $1}'`
+PIP3=`/bin/echo "$PPPOEIP" | /usr/bin/cut -d. -f3 | /usr/bin/awk '{print $1}'`
+PIP4=`/bin/echo "$PPPOEIP" | /usr/bin/cut -d. -f4 | /usr/bin/awk '{print $1}'`
+
+RDUNIQUE=`/usr/bin/printf "%02x%02x:%02x%02x\n" $PIP1 $PIP2 $PIP3 $PIP4`
+RDFUDGE="${RDUNIQUE:0:2}:${RDUNIQUE:2:2}${RDUNIQUE:5:2}:${RDUNIQUE:7:2}"
+echo "Generated custom prefix bits of $RDFUDGE from PPPoE IP $PPPOEIP"
+
+PREFIX1="${CARRIER6RDPREFIX}:${RDFUDGE}00::"
+PREFIX2="${CARRIER6RDPREFIX}:${RDFUDGE}01::"
+echo "Our 6RD prefix is now ${PREFIX1}/64"
+
+source /opt/vyatta/etc/functions/script-template
+configure                            
+delete interfaces tunnel ${TUNIFACE} address 
+delete interfaces tunnel ${TUNIFACE} local-ip 
+delete interfaces ethernet ${LANIFACE} address                  
+delete interfaces ethernet ${LANIFACE} ipv6 router-advert prefix
+set interfaces tunnel ${TUNIFACE} address ${PREFIX1}1/64
+set interfaces tunnel ${TUNIFACE} local-ip ${PPPOEIP}   
+set interfaces ethernet ${LANIFACE} address ${LANIPV4}    
+set interfaces ethernet ${LANIFACE} address ${PREFIX2}1/64                                      
+set interfaces ethernet ${LANIFACE} ipv6 router-advert prefix ${PREFIX2}/64 autonomous-flag true
+commit
+save
+exit
+ 
